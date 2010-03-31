@@ -22,7 +22,7 @@ namespace Chill
 
         public HttpWebResponse Request(string method, string body, string contentType)
         {
-            var request = (HttpWebRequest) WebRequest.Create("http://localhost:3456/TestPage.aspx");
+            var request = (HttpWebRequest) WebRequest.Create(_url);
             request.Method = method;
 
             if (method == "POST")
