@@ -1,5 +1,15 @@
-*.resharper.user
-_ReSharper.Chill
-**/bin/
-**/obj/
-**/*.suo
+# Directories
+.nuget
+[Bb]in
+[Dd]ebug
+[Ee]xternal
+[Oo]bj
+[Pp]ackages
+[Rr]elease
+[Tt]est-[Rr]esults
+
+# Files
+.DS_Store
+*.pdb
+*.suo
+*.csproj.user
