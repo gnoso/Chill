@@ -1,5 +1,4 @@
-Cassini Test Harness
-------------------------------------------
+## Cassini Test Harness
 
 This test harness lets you mount a web application and start it in cassini as part of a test suite, so
 that it's a piece of cake to test apis, etc.
