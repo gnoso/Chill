@@ -13,7 +13,6 @@ namespace Chill
     public class RestRequest
     {
         private string _url;
-        private string _body;
 
         public RestRequest(string url)
         {
