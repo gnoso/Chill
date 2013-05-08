@@ -23,7 +23,10 @@ using System.Web;
 using System.Web.Hosting;
 
 namespace Cassini {
-    class Connection : MarshalByRefObject {
+    /// <summary>
+    /// 12/29/09 sky: changed visibility to public
+    /// </summary>
+    public class Connection : MarshalByRefObject {
         Server _server;
         Socket _socket;
         string _localServerIP;

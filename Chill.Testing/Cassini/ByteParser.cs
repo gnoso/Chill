@@ -10,6 +10,10 @@
  *
  * **********************************************************************************/
 
+using System;
+using System.Collections;
+using System.Text;
+
 namespace Cassini {
     class ByteParser {
         byte[] _bytes;

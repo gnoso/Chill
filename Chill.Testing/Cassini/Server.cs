@@ -11,171 +11,289 @@
  * **********************************************************************************/
 
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Runtime.Remoting;
 using System.Threading;
 using System.Web;
 using System.Web.Hosting;
+using CassiniDev;
 
-namespace Cassini {
-    class Server : MarshalByRefObject {
-        int _port;
-        string _virtualPath;
-        string _physicalPath;
+namespace Cassini
+{
+    /// <summary>
+    /// 12/29/09 sky: changed visibility to public
+    /// 12/29/09 sky: modified CreateSocketBindAndListen: added socket option ReuseAddress to prevent
+    ///               false port conflicts with freshly released ports in TIME_WAIT state.
+    ///               In a testing scenario we may be creating and disposing many servers in rapid succession.
+    ///               Default socket behaviour will send the closed socket into the TIME_WAIT state, a sort of 
+    ///               cooldown period, making it unavaible. By setting ReuseAddress we are telling winsock to 
+    ///               accept the binding event if the socket is in TIME_WAIT. 
+    /// 12/29/09 sky: modified Start: replaced hard coded reference to loopback with instance field
+    ///               _ipAddress and removed the try/catch implicit rollover to ipv6.
+    /// 12/29/09 sky: modified RootUrl: added support for hostname and arbitrary IP address
+    /// 01/01/10 sky: added support for relative paths to constructor
+    /// 
+    /// </summary>
+    public partial class Server : MarshalByRefObject
+    {
+        readonly int _port;
+        readonly string _virtualPath;
+        readonly string _physicalPath;
         bool _shutdownInProgress;
         Socket _socket;
         Host _host;
 
-        public Server(int port, string virtualPath, string physicalPath) {
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="port"></param>
+        /// <param name="virtualPath"></param>
+        /// <param name="physicalPath"></param>
+        public Server(int port, string virtualPath, string physicalPath)
+        {
             _port = port;
             _virtualPath = virtualPath;
-            _physicalPath = physicalPath.EndsWith("\\", StringComparison.Ordinal) ? physicalPath : physicalPath + "\\";
+            _physicalPath = Path.GetFullPath(physicalPath);
+            _physicalPath = _physicalPath.EndsWith("\\", StringComparison.Ordinal) ? _physicalPath : _physicalPath + "\\";
         }
 
-        public override object InitializeLifetimeService() {
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns></returns>
+        public override object InitializeLifetimeService()
+        {
             // never expire the license
             return null;
         }
 
-        public string VirtualPath {
-            get {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string VirtualPath
+        {
+            get
+            {
                 return _virtualPath;
             }
         }
 
-        public string PhysicalPath {
-            get {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string PhysicalPath
+        {
+            get
+            {
                 return _physicalPath;
             }
         }
 
-        public int Port {
-            get {
+        /// <summary>
+        /// 
+        /// </summary>
+        public int Port
+        {
+            get
+            {
                 return _port;
             }
         }
 
-        public string RootUrl {
-            get {
-                if (_port != 80) {
-                    return "http://localhost:" + _port + _virtualPath;
+        /// <summary>
+        /// sky: modified to allow hostname and arbitrary IP
+        /// </summary>
+        public string RootUrl
+        {
+            get
+            {
+                string hostname = _hostName;
+                if (string.IsNullOrEmpty(_hostName))
+                {
+                    if (_ipAddress.Equals(IPAddress.Loopback) || _ipAddress.Equals(IPAddress.IPv6Loopback) ||
+                        _ipAddress.Equals(IPAddress.Any) || _ipAddress.Equals(IPAddress.IPv6Any))
+                    {
+                        hostname = "localhost";
+                    }
+                    else
+                    {
+                        hostname = _ipAddress.ToString();
+                    }
                 }
-                else {
-                    return "http://localhost" + _virtualPath;
-                }
+
+                return _port != 80 ?
+                    String.Format("http://{0}:{1}{2}", hostname, _port, _virtualPath) :
+                    string.Format("http://{0}.{1}", hostname, _virtualPath);
+
             }
         }
 
-        //
-        // Socket listening
-        // 
 
-        static Socket CreateSocketBindAndListen(AddressFamily family, IPAddress address, int port) {
+        /// <summary>
+        /// Socket listening 
+        /// </summary>
+        /// <param name="family"></param>
+        /// <param name="address"></param>
+        /// <param name="port"></param>
+        /// <returns></returns>
+        private static Socket CreateSocketBindAndListen(AddressFamily family, IPAddress address, int port)
+        {
             var socket = new Socket(family, SocketType.Stream, ProtocolType.Tcp);
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             socket.Bind(new IPEndPoint(address, port));
             socket.Listen((int)SocketOptionName.MaxConnections);
             return socket;
         }
 
-        public void Start() {
-            try {
-                _socket = CreateSocketBindAndListen(AddressFamily.InterNetwork, IPAddress.Loopback, _port);
-            }
-            catch {
-                _socket = CreateSocketBindAndListen(AddressFamily.InterNetworkV6, IPAddress.IPv6Loopback, _port);
-            }
+        /// <summary>
+        /// 
+        /// </summary>
+        public void Start()
+        {
+            _socket = CreateSocketBindAndListen(AddressFamily.InterNetwork, _ipAddress, _port);
+            //start the timer
+            StartTimer();
+            
 
-            ThreadPool.QueueUserWorkItem(delegate {
-                while (!_shutdownInProgress) {
-                    try {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                while (!_shutdownInProgress)
+                {
+                    try
+                    {
                         Socket acceptedSocket = _socket.Accept();
 
-                        ThreadPool.QueueUserWorkItem(delegate {
-                            if (!_shutdownInProgress) {
+                        ThreadPool.QueueUserWorkItem(delegate
+                        {
+                            if (!_shutdownInProgress)
+                            {
                                 var conn = new Connection(this, acceptedSocket);
 
                                 // wait for at least some input
-                                if (conn.WaitForRequestBytes() == 0) {
+                                if (conn.WaitForRequestBytes() == 0)
+                                {
                                     conn.WriteErrorAndClose(400);
                                     return;
                                 }
 
                                 // find or create host
                                 Host host = GetHost();
-                                if (host == null) {
+                                if (host == null)
+                                {
                                     conn.WriteErrorAndClose(500);
                                     return;
                                 }
 
+                                IncrementRequestCount();
+                                
                                 // process request in worker app domain
                                 host.ProcessRequest(conn);
+
+                                DecrementRequestCount();
                             }
                         });
                     }
-                    catch {
+                    catch
+                    {
                         Thread.Sleep(100);
                     }
                 }
+
             });
+
+            OnServerStarted(new ServerEventArgs(RootUrl));
         }
 
-        public void Stop() {
+        
+        /// <summary>
+        /// 
+        /// </summary>
+        public void Stop()
+        {
             _shutdownInProgress = true;
+            OnServerStopped(new ServerEventArgs(RootUrl));
 
-            try {
-                if (_socket != null) {
+            try
+            {
+                if (_socket != null)
+                {
                     _socket.Close();
                 }
             }
-            catch {
+            catch
+            {
             }
-            finally {
+            finally
+            {
                 _socket = null;
             }
 
-            try {
-                if (_host != null) {
+            try
+            {
+                if (_host != null)
+                {
                     _host.Shutdown();
                 }
 
-                while (_host != null) {
+                while (_host != null)
+                {
                     Thread.Sleep(100);
                 }
             }
-            catch {
+            catch
+            {
             }
-            finally {
+            finally
+            {
                 _host = null;
             }
+
+            
+            
         }
 
-        // called at the end of request processing
-        // to disconnect the remoting proxy for Connection object
-        // and allow GC to pick it up
-        public void OnRequestEnd(Connection conn) {
+        /// <summary>
+        /// Called at the end of request processing to disconnect the remoting proxy for Connection object
+        /// and allow GC to pick it up.
+        /// 
+        /// 01/06/10 sky: modified signature to enable instrumentation
+        /// </summary>
+        /// <param name="conn"></param>
+        /// <param name="info"></param>
+        public virtual void OnRequestEnd(Connection conn, RequestInfo info)
+        {
+            OnRequestComplete(new RequestEventArgs(info));
+
             RemotingServices.Disconnect(conn);
+         
         }
 
-        public void HostStopped() {
+        /// <summary>
+        /// 
+        /// </summary>
+        public void HostStopped()
+        {
             _host = null;
         }
 
-        Host GetHost() {
+        Host GetHost()
+        {
             if (_shutdownInProgress)
                 return null;
 
             Host host = _host;
 
-            if (host == null) {
-                lock (this) {
+            if (host == null)
+            {
+                lock (this)
+                {
                     host = _host;
-                    if (host == null) {
+                    if (host == null)
+                    {
                         host = (Host)CreateWorkerAppDomainWithHost(_virtualPath, _physicalPath, typeof(Host));
                         host.Configure(this, _port, _virtualPath, _physicalPath);
                         _host = host;
@@ -186,7 +304,8 @@ namespace Cassini {
             return host;
         }
 
-        static object CreateWorkerAppDomainWithHost(string virtualPath, string physicalPath, Type hostType) {
+        static object CreateWorkerAppDomainWithHost(string virtualPath, string physicalPath, Type hostType)
+        {
             // this creates worker app domain in a way that host doesn't need to be in GAC or bin
             // using BuildManagerHost via private reflection
             string uniqueAppString = string.Concat(virtualPath, physicalPath).ToLowerInvariant();
@@ -203,7 +322,7 @@ namespace Cassini {
                 BindingFlags.Instance | BindingFlags.InvokeMethod | BindingFlags.NonPublic,
                 null,
                 buildManagerHost,
-                new object[2] { hostType.Assembly.FullName, hostType.Assembly.Location });
+                new object[] { hostType.Assembly.FullName, hostType.Assembly.Location });
 
             // create Host in the worker app domain
             return appManager.CreateObject(appId, hostType, virtualPath, physicalPath, false);

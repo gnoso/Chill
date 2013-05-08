@@ -24,8 +24,19 @@ using System.Web.Hosting;
 using System.Security.Permissions;
 using System.Security.Principal;
 
-namespace Cassini {
-    class Host : MarshalByRefObject, IRegisteredObject {
+namespace Cassini
+{
+    /// <summary>
+    /// 01/01/10 sky: added HttpRuntime.Close to IRegisteredObject.Stop to eliminate 
+    ///               System.AppDomainUnloadedException when running tests in NUnit GuiRunner.
+    ///               reference: http://stackoverflow.com/questions/561402/cassini-webserver-webdev-nunit-and-appdomainunloadedexception
+    ///               need to test thoroughly but seems to work just fine with no ill effects
+    /// 01.03.10 sky: removed the HttpRuntime.Close because, even though it tests fine, I am not entirely certain it is in the right place
+    ///               and since I am no longer recommending that the server be used as a library in testing (run a console instance in a new process).
+    ///  01/06/10 sky: changed visibility to public             
+    /// </summary>  
+    public class Host : MarshalByRefObject, IRegisteredObject
+    {
         Server _server;
 
         int _port;
@@ -38,16 +49,20 @@ namespace Cassini {
         string _physicalClientScriptPath;
         string _lowerCasedClientScriptPathWithTrailingSlash;
 
-        public override object InitializeLifetimeService() {
+
+        public override object InitializeLifetimeService()
+        {
             // never expire the license
             return null;
         }
 
-        public Host() {
+        public Host()
+        {
             HostingEnvironment.RegisterObject(this);
         }
 
-        public void Configure(Server server, int port, string virtualPath, string physicalPath) {
+        public void Configure(Server server, int port, string virtualPath, string physicalPath)
+        {
             _server = server;
 
             _port = port;
@@ -62,21 +77,27 @@ namespace Cassini {
             _lowerCasedClientScriptPathWithTrailingSlash = CultureInfo.InvariantCulture.TextInfo.ToLower(HttpRuntime.AspClientScriptVirtualPath + "/");
         }
 
-        public void ProcessRequest(Connection conn) {
+        public void ProcessRequest(Connection conn)
+        {
             // Add a pending call to make sure our thread doesn't get killed
             AddPendingCall();
 
-            try {
+            try
+            {
                 Request request = new Request(_server, this, conn);
+
                 request.Process();
             }
-            finally {
+            finally
+            {
                 RemovePendingCall();
             }
         }
 
-        void WaitForPendingCallsToFinish() {
-            for (; ; ) {
+        void WaitForPendingCallsToFinish()
+        {
+            for (; ; )
+            {
                 if (_pendingCallsCount <= 0)
                     break;
 
@@ -84,25 +105,30 @@ namespace Cassini {
             }
         }
 
-        void AddPendingCall() {
+        void AddPendingCall()
+        {
 #pragma warning disable 0420
             Interlocked.Increment(ref _pendingCallsCount);
 #pragma warning restore 0420
         }
 
-        void RemovePendingCall() {
+        void RemovePendingCall()
+        {
 #pragma warning disable 0420
             Interlocked.Decrement(ref _pendingCallsCount);
 #pragma warning restore 0420
         }
 
-        public void Shutdown() {
+        public void Shutdown()
+        {
             HostingEnvironment.InitiateShutdown();
         }
 
-        void IRegisteredObject.Stop(bool immediate) {
+        void IRegisteredObject.Stop(bool immediate)
+        {
             // Unhook the Host so Server will process the requests in the new appdomain.
-            if (_server != null) {
+            if (_server != null)
+            {
                 _server.HostStopped();
             }
 
@@ -110,6 +136,8 @@ namespace Cassini {
             WaitForPendingCallsToFinish();
 
             HostingEnvironment.UnregisterObject(this);
+
+            //HttpRuntime.Close();
         }
 
         public string InstallPath { get { return _installPath; } }
@@ -120,19 +148,23 @@ namespace Cassini {
         public int Port { get { return _port; } }
         public string VirtualPath { get { return _virtualPath; } }
 
-        public bool IsVirtualPathInApp(String path) {
+        public bool IsVirtualPathInApp(String path)
+        {
             bool isClientScriptPath;
             return IsVirtualPathInApp(path, out isClientScriptPath);
         }
 
-        public bool IsVirtualPathInApp(string path, out bool isClientScriptPath) {
+        public bool IsVirtualPathInApp(string path, out bool isClientScriptPath)
+        {
             isClientScriptPath = false;
 
-            if (path == null) {
+            if (path == null)
+            {
                 return false;
             }
 
-            if (_virtualPath == "/" && path.StartsWith("/", StringComparison.Ordinal)) {
+            if (_virtualPath == "/" && path.StartsWith("/", StringComparison.Ordinal))
+            {
                 if (path.StartsWith(_lowerCasedClientScriptPathWithTrailingSlash, StringComparison.Ordinal))
                     isClientScriptPath = true;
                 return true;
@@ -146,7 +178,8 @@ namespace Cassini {
             if (path == _lowerCasedVirtualPath)
                 return true;
 
-            if (path.StartsWith(_lowerCasedClientScriptPathWithTrailingSlash, StringComparison.Ordinal)) {
+            if (path.StartsWith(_lowerCasedClientScriptPathWithTrailingSlash, StringComparison.Ordinal))
+            {
                 isClientScriptPath = true;
                 return true;
             }
@@ -154,7 +187,8 @@ namespace Cassini {
             return false;
         }
 
-        public bool IsVirtualPathAppPath(string path) {
+        public bool IsVirtualPathAppPath(string path)
+        {
             if (path == null) return false;
             path = CultureInfo.InvariantCulture.TextInfo.ToLower(path);
             return (path == _lowerCasedVirtualPath || path == _lowerCasedVirtualPathWithTrailingSlash);
